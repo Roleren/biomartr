@@ -28,7 +28,8 @@ getTMPFile <- function(file.name){
 #' @noRd
 gunzip_and_check <- function(file, gunzip = FALSE,
                              remove_annotation_outliers = FALSE, format,
-                             mute_citation = FALSE) {
+                             mute_citation = FALSE, overwrite = TRUE,
+                             remove = TRUE) {
   final_path <- file
   if (gunzip) {
     final_path <- unlist(stringr::str_replace(final_path, "[.]gz", ""))
@@ -41,7 +42,8 @@ gunzip_and_check <- function(file, gunzip = FALSE,
 
   if (gunzip) {
     message("-> Unzipping downloaded file ...")
-    R.utils::gunzip(file, destname = final_path)
+    R.utils::gunzip(file, destname = final_path, overwrite = overwrite,
+                    remove = remove)
   }
   if (format == "gff3") {
     output_path <- check_annotation_biomartr(final_path, remove_annotation_outliers)
