@@ -104,7 +104,7 @@ getBioSet <- function(db = "refseq",
 #' \item by \code{taxonomic identifier from NCBI Taxonomy}: e.g. \code{organism = "9606"} (= taxid of \code{Homo sapiens})
 #' }
 #' @param type biological sequence type. (alternatives are: genome, gff, cds,
-#' rna, proteome, assembly_stats, repeat_masker, collection (all the others))
+#' rna, proteome, assembly_stats, repeat_masker (short version is 'rm') , collection (all the others))
 #' @param reference a logical value indicating whether or not a genome shall be a candidate for downloaded
 #'  if it isn't marked in the database as either a reference genome or a representative genome.
 #'  This is helpful if you don't want to allow "partial genomes" etc.
@@ -211,13 +211,13 @@ getBio <- function(db = "refseq",
                 gunzip = gunzip,
                 path = path,
                 mute_citation = mute_citation)
-  } else if (type == "assembly_stats") {
+  } else if (type %in% c("assembly_stats", "assemblystats")) {
     getAssemblyStats(db, organism, reference = reference,
                 skip_bacteria = skip_bacteria,
                 release = release,
                 path = path,
                 mute_citation = mute_citation)
-  } else if (type == "repeat_masker") {
+  } else if (type %in% c("repeat_masker", "rm")) {
     getRepeatMasker(db, organism, reference = reference,
                      skip_bacteria = skip_bacteria,
                      release = release,
@@ -232,7 +232,7 @@ getBio <- function(db = "refseq",
                   remove_annotation_outliers = FALSE,
                   path = path,
                   mute_citation = mute_citation)
-  } else stop("invalid bio getter type selected")
+  } else stop("Invalid bio getter type selected")
 }
 
 make_summary_doc_set <- function(path, out = file.path(path, "documentation", paste0(basename(path), "_summary.csv"))) {

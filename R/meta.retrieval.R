@@ -131,7 +131,7 @@
 #' # Now we choose the group Gammaproteobacteria and specify
 #' # the group argument in the meta.retrieval() function
 #' meta.retrieval(kingdom = "bacteria",
-#'    roup = "Gammaproteobacteria",
+#'    group = "Gammaproteobacteria",
 #'    db = "refseq",
 #'    type = "genome")
 #' }
@@ -145,87 +145,69 @@ meta.retrieval <- function(db         = "refseq",
                            restart_at_last = TRUE,
                            reference  = FALSE,
                            combine    = FALSE,
-                           path = NULL) {
+                           path = kingdom) {
+    stopifnot(is.character(path) | is.null(path))
+    if (is.null(path)) path <- kingdom
 
     division <- subgroup <- NULL
-
     subfolders <- getKingdoms(db = db)
-
-    if (!is.element(kingdom, subfolders))
-        stop(paste0(
-            "Please select a valid kingdom: ",
-            paste0(subfolders, collapse = ", ")
-        ), call. = FALSE)
-
-    if (!is.null(group))
-        if (!is.element(group, getGroups(kingdom = kingdom, db = db)))
-            stop(
-                "Please specify a group that is supported by getGroups().
-                Your specification '",
-                group,
-                "' does not exist in getGroups(kingdom = '",
-                kingdom,
-                "', db = '",
-                db,
-                "'). Maybe you used a different db argument in getGroups()?",
-                call. = FALSE
-            )
-
-    if (!is.element(type,
-                    c("genome", "proteome", "CDS","cds", "gff",
-                      "rna", "assemblystats", "gtf", "rm")))
-        stop(
-        "Please choose either type: type = 'genome', type = 'proteome',
-        type = 'CDS', type = 'gff', type = 'gtf',
-        type = 'rna', type = 'rm', or type = 'assemblystats'.",
-            call. = FALSE
-        )
-
-    if (!is.element(db, c("refseq", "genbank", "ensembl")))
-        stop(
-            "Please select einter db = 'refseq', db = 'genbank', or
-            db = 'ensembl'.",
-            call. = FALSE
-        )
-
-    if ((stringr::str_to_upper(type) == "CDS") && (db == "genbank"))
-        stop("Genbank does not store CDS data. Please choose 'db = 'refseq''.",
-             call. = FALSE)
-
-    if ((type == "gtf") && (is.element(db, c("genbank", "refseq"))))
-            stop("GTF files are only available for type = 'ensembl' and type = 'ensemblgebomes'.")
-
-    if (type == "assemblystats" &&
-        !is.element(db, c("refseq", "genbank")))
-        stop(
-            "Unfortunately, assembly stats files are only available for
-            db = 'refseq' and db = 'genbank'.",
-            call. = FALSE
-        )
-
-    if (combine && type != "assemblystats")
-        stop(
-            "Only option type = 'assemblystats' can use combine = TRUE. Please
-            specify: type = 'assemblystats' and combine = TRUE.",
-            call. = FALSE
-        )
-
-    if ((type == "rm") && (!is.element(db, c("refseq", "genbank"))))
-        stop("Repeat Masker output files can only be retrieved from 'refseq'",
-             " or 'genbank'.", call. = FALSE)
+    validate_db_format_pair(db, kingdom, subfolders, type, combine, group)
+    all_biotypes <- supported_biotypes(db)
 
 
+    FinalOrganisms <- meta.retrieval.select.organisms(db, kingdom, group, type,
+                                                      path, restart_at_last)
+
+    paths <- vector("character", length(FinalOrganisms))
+    stats.files <- vector("list", length(FinalOrganisms))
+    analyse_genome <- FALSE
+    assembly_type <- "toplevel"
+    remove_annotation_outliers <- FALSE
+    release <- NULL
+    skip_bacteria <- FALSE
+    for (i in seq_along(FinalOrganisms)) {
+        # TODO: assemblystats getBIO type
+        paths[i] <- getBio(db, FinalOrganisms[i], type,
+                           reference = reference, release = release, gunzip = FALSE,
+                           update = FALSE, skip_bacteria = skip_bacteria,
+                           path = path,
+                           remove_annotation_outliers = remove_annotation_outliers,
+                           analyse_genome = analyse_genome, assembly_type = assembly_type,
+                           format = names(all_biotypes[all_biotypes == type]), mute_citation = TRUE)
+        message("\n")
+        if (type %in% c("assemblystats", "assembly_stats")) {
+            if (combine) {
+                stats.files[i] <- paths[i]
+                names(stats.files[i]) <- FinalOrganisms[i]
+            }
+
+        }
+    }
+
+    meta.retrieval.summarize.logfiles(path, kingdom)
+    if (length(FinalOrganisms) > 0) {
+        if (combine) {
+            stats.files <- dplyr::bind_rows(stats::na.omit(stats.files))
+            message("Finished meta retieval process.")
+            return(stats.files)
+        }
+        message("Finished meta retieval process.")
+        return(paths[!is.element(paths, c("FALSE", "Not available"))])
+    }
+
+    message("The ", type,"s of all species have already been downloaded! You are up to date!")
+    please_cite_biomartr()
+    return(invisible(NULL))
+}
+
+meta.retrieval.select.organisms <- function(db, kingdom, group, type, path,
+                                            restart_at_last) {
     if (is.element(db, c("refseq", "genbank"))) {
         if (is.null(group)) {
             assembly.summary.file <-
                 getSummaryFile(db = db, kingdom = kingdom)
-            #assembly.summary.file <-
-            #    dplyr::mutate(assembly.summary.file,
-            #    organism_name = clean.str.brackets(organism_name))
             FinalOrganisms <-
                 unique(assembly.summary.file$organism_name)
-            #organism_name <- NULL
-
         }
 
         if (!is.null(group)) {
@@ -275,24 +257,14 @@ meta.retrieval <- function(db         = "refseq",
         )
     message("\n")
 
-    if (!is.null(path)) {
-        if (!file.exists(path)) {
-            message("Generating folder ", path, " ...")
-            dir.create(path, recursive = TRUE)
-        }
 
-        if (!file.exists(file.path(path, "documentation")))
-            dir.create(file.path(path, "documentation"))
-    } else {
-        if (!file.exists(kingdom)) {
-            message("Generating folder ", kingdom, " ...")
-            dir.create(kingdom, recursive = TRUE)
-        }
-        if (!file.exists(file.path(kingdom, "documentation")))
-            dir.create(file.path(kingdom, "documentation"))
+    if (!dir.exists(file.path(path, "documentation"))) {
+        message("Generating folder ", path, " ...")
+        dir.create(file.path(path, "documentation"), recursive = TRUE)
     }
 
-    paths <- vector("character", length(FinalOrganisms))
+
+
 
 
     if (is.element(db, c("refseq", "genbank"))) {
@@ -303,15 +275,7 @@ meta.retrieval <- function(db         = "refseq",
         if (type == "gtf") internal_type <- db
         if (type == "rna") internal_type <- "rna"
         if (type == "rm") internal_type <- "rm"
-        if (type == "assemblystats") internal_type <- "assembly"
-
-
-        if (!is.null(path)) {
-            .existingOrgs <- existingOrganisms(path = path, .type = internal_type)
-        } else {
-            .existingOrgs <- existingOrganisms(path = kingdom, .type = internal_type)
-        }
-
+        if (type %in% c("assembly_stats","assemblystats")) internal_type <- "assembly"
     }
 
 
@@ -323,12 +287,6 @@ meta.retrieval <- function(db         = "refseq",
         if (type == "gff") internal_type <- "ensembl"
         if (type == "gtf") internal_type <- "ensembl"
         if (type == "rna") internal_type <- "ncrna"
-
-        if (!is.null(path)) {
-            .existingOrgs <- existingOrganisms_ensembl(path = path, .type = internal_type)
-        } else {
-            .existingOrgs <- existingOrganisms_ensembl(path = kingdom, .type = internal_type)
-        }
     }
 
     if (db == "ensemblgenomes") {
@@ -338,15 +296,11 @@ meta.retrieval <- function(db         = "refseq",
         if (type == "gff") internal_type <- "ensemblgenomes"
         if (type == "gtf") internal_type <- "ensemblgenomes"
         if (type == "rna") internal_type <- "ncrna"
-
-        if (!is.null(path)) {
-            .existingOrgs <- existingOrganisms_ensembl(path = path, .type = internal_type)
-        } else {
-            .existingOrgs <- existingOrganisms_ensembl(path = kingdom, .type = internal_type)
-        }
-
     }
 
+    .existingOrgs <- existingOrganisms(path = path, .type = internal_type)
+
+    total_species_in_group <- length(FinalOrganisms)
     if (length(.existingOrgs) > 0) {
         if (restart_at_last) {
             FinalOrganisms <- dplyr::setdiff(FinalOrganisms, .existingOrgs)
@@ -356,311 +310,30 @@ meta.retrieval <- function(db         = "refseq",
             }
         }
     }
+    suffix_message <- ifelse(length(.existingOrgs) > 0,
+                             paste0(", (", length(.existingOrgs), " already exist on drive)"), "")
+    message("Total species to download: ", total_species_in_group, suffix_message)
 
-    if (length(FinalOrganisms) > 0) {
+    return(FinalOrganisms)
+}
 
-        if (type == "genome") {
-            if (is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    paths[i] <- getGenome(db        = db,
-                                          organism  = FinalOrganisms[i],
-                                          reference = reference,
-                                          path      = kingdom,
-                                          mute_citation = TRUE)
-                    message("\n")
-                }
-            }
+meta.retrieval.summarize.logfiles <- function(path, kingdom) {
+    meta_files <- list.files(path)
+    meta_files <- meta_files[stringr::str_detect(meta_files, "doc_")]
+    file.rename(from = file.path(path, meta_files), to = file.path(path, "documentation", meta_files))
 
-            if (!is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    paths[i] <- getGenome(db       = db,
-                                          organism = FinalOrganisms[i],
-                                          reference = reference,
-                                          path     = path,
-                                          mute_citation = TRUE)
-                    message("\n")
-                }
-            }
-        }
+    doc_tsv_files <- file.path(path,"documentation", meta_files[stringr::str_detect(meta_files, "[.]tsv")])
 
-        if (type == "proteome") {
-            if (is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    paths[i] <- getProteome(db       = db,
-                                            organism = FinalOrganisms[i],
-                                            reference = reference,
-                                            path     = kingdom,
-                                            mute_citation = TRUE)
-                    message("\n")
-                }
-            }
+    summary_log <- dplyr::bind_rows(lapply(doc_tsv_files, function(data) {
+        if (fs::file_size(data) > 0)
+            suppressMessages(readr::read_tsv(data))
+    }))
 
-            if (!is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    paths[i] <- getProteome(db       = db,
-                                            organism = FinalOrganisms[i],
-                                            reference = reference,
-                                            path     = path,
-                                            mute_citation = TRUE)
-                    message("\n")
-                }
-            }
-        }
-
-        if (stringr::str_to_upper(type) == "CDS") {
-            if (is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    paths[i] <- getCDS(db       = db,
-                                       organism = FinalOrganisms[i],
-                                       reference = reference,
-                                       path     = kingdom,
-                                       mute_citation = TRUE)
-                    message("\n")
-                }
-            }
-
-            if (!is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    paths[i] <- getCDS(db       = db,
-                                       organism = FinalOrganisms[i],
-                                       reference = reference,
-                                       path     = path,
-                                       mute_citation = TRUE)
-                    message("\n")
-                }
-            }
-        }
-
-        if (type == "gff") {
-            if (is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    paths[i] <- getGFF(db       = db,
-                                       organism = FinalOrganisms[i],
-                                       reference = reference,
-                                       path     = kingdom,
-                                       mute_citation = TRUE)
-                    message("\n")
-                }
-            }
-
-            if (!is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    paths[i] <- getGFF(db       = db,
-                                       organism = FinalOrganisms[i],
-                                       reference = reference,
-                                       path     = path,
-                                       mute_citation = TRUE)
-                    message("\n")
-                }
-            }
-        }
-
-        if (type == "gtf") {
-            if (is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    paths[i] <- getGTF(db       = db,
-                                       organism = FinalOrganisms[i],
-                                       path     = kingdom,
-                                       mute_citation = TRUE)
-                    message("\n")
-                }
-            }
-
-            if (!is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    paths[i] <- getGTF(db       = db,
-                                       organism = FinalOrganisms[i],
-                                       path     = path,
-                                       mute_citation = TRUE)
-                    message("\n")
-                }
-            }
-        }
-
-        if (type == "rm") {
-            if (is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    paths[i] <- getRepeatMasker(db       = db,
-                                                organism = FinalOrganisms[i],
-                                                reference = reference,
-                                                path     = kingdom,
-                                                mute_citation = TRUE)
-                    message("\n")
-                }
-            }
-
-            if (!is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    paths[i] <- getRepeatMasker(db       = db,
-                                                organism = FinalOrganisms[i],
-                                                reference = reference,
-                                                path     = path,
-                                                mute_citation = TRUE)
-                    message("\n")
-                }
-            }
-        }
-
-        if (type == "rna") {
-            if (is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    paths[i] <- getRNA(db       = db,
-                                       organism = FinalOrganisms[i],
-                                       reference = reference,
-                                       path     = kingdom,
-                                       mute_citation = TRUE)
-                    message("\n")
-                }
-            }
-
-            if (!is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    getRNA(db       = db,
-                           organism = FinalOrganisms[i],
-                           reference = reference,
-                           path     = path,
-                           mute_citation = TRUE)
-                    message("\n")
-                }
-            }
-        }
-
-        if (type == "assemblystats") {
-            stats.files <- vector("list", length(FinalOrganisms))
-
-            if (is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    if (combine) {
-                        stats.files[i] <- list(
-                            getAssemblyStats(
-                                db       = db,
-                                organism = FinalOrganisms[i],
-                                reference = reference,
-                                path     = kingdom,
-                                type     = "import",
-                                mute_citation = TRUE
-                            )
-                        )
-                        names(stats.files[i]) <- FinalOrganisms[i]
-                        message("\n")
-                    } else {
-                        paths[i] <- getAssemblyStats(
-                            db       = db,
-                            organism = FinalOrganisms[i],
-                            reference = reference,
-                            path     = kingdom,
-                            mute_citation = TRUE
-                        )
-                        message("\n")
-                    }
-                }
-            }
-
-            if (!is.null(path)) {
-                for (i in seq_len(length(FinalOrganisms))) {
-                    if (combine) {
-                        stats.files[i] <- list(
-                            getAssemblyStats(
-                                db       = db,
-                                organism = FinalOrganisms[i],
-                                reference = reference,
-                                path     = path,
-                                type     = "import",
-                                mute_citation = TRUE
-                            )
-                        )
-                        names(stats.files[i]) <- FinalOrganisms[i]
-                    } else {
-                        paths[i] <- getAssemblyStats(
-                            db       = db,
-                            reference = reference,
-                            organism = FinalOrganisms[i],
-                            path     = path,
-                            mute_citation = TRUE
-                        )
-                    }
-                }
-            }
-        }
-
-
-        if (!is.null(path)) {
-            meta_files <- list.files(path)
-            meta_files <- meta_files[stringr::str_detect(meta_files, "doc_")]
-            file.rename(from = file.path(path, meta_files), to = file.path(path, "documentation", meta_files))
-
-            doc_tsv_files <- file.path(path,"documentation", meta_files[stringr::str_detect(meta_files, "[.]tsv")])
-
-            summary_log <- dplyr::bind_rows(lapply(doc_tsv_files, function(data) {
-              if (fs::file_size(data) > 0)
-                suppressMessages(readr::read_tsv(data))
-            }))
-
-            readr::write_excel_csv(summary_log, file.path(path, "documentation", paste0(kingdom, "_summary.csv")))
-            message("A summary file (which can be used as supplementary information file in publications) containig retrieval information for all ",kingdom," species has been stored at '",file.path(path, "documentation", paste0(kingdom, "_summary.csv")),"'.")
-
-        } else {
-            meta_files <- list.files(kingdom)
-            meta_files <- meta_files[stringr::str_detect(meta_files, "doc_")]
-            file.rename(from = file.path(kingdom, meta_files), to = file.path(kingdom, "documentation", meta_files))
-
-            doc_tsv_files <- file.path(kingdom,"documentation", meta_files[stringr::str_detect(meta_files, "[.]tsv")])
-
-            summary_log <- dplyr::bind_rows(lapply(doc_tsv_files, function(data) {
-              if (fs::file_size(data) > 0)
-                suppressMessages(readr::read_tsv(data))
-            }))
-
-            readr::write_excel_csv(summary_log, file.path(kingdom, "documentation", paste0(kingdom, "_summary.csv")))
-            message("A summary file (which can be used as supplementary information file in publications) containig retrieval information for all ",kingdom," species has been stored at '",file.path(kingdom, "documentation", paste0(kingdom, "_summary.csv")),"'.")
-
-        }
-
-        if (combine) {
-            stats.files <- dplyr::bind_rows(stats::na.omit(stats.files))
-            message("Finished meta retieval process.")
-            return(stats.files)
-        }
-
-        message("Finished meta retieval process.")
-        return(paths[!is.element(paths, c("FALSE", "Not available"))])
-    } else {
-
-        if (!is.null(path)) {
-            meta_files <- list.files(path)
-            meta_files <- meta_files[stringr::str_detect(meta_files, "doc_")]
-            file.rename(from = file.path(path, meta_files), to = file.path(path, "documentation", meta_files))
-
-            doc_tsv_files <- file.path(path,"documentation", meta_files[stringr::str_detect(meta_files, "[.]tsv")])
-
-            summary_log <- dplyr::bind_rows(lapply(doc_tsv_files, function(data) {
-              if (fs::file_size(data) > 0)
-                suppressMessages(readr::read_tsv(data))
-            }))
-
-            readr::write_excel_csv(summary_log, file.path(path, "documentation", paste0(kingdom, "_summary.csv")))
-            message("A summary file (which can be used as supplementary information file in publications) containig retrieval information for all ",kingdom," species has been stored at '",file.path(path, "documentation", paste0(kingdom, "_summary.csv")),"'.")
-
-        } else {
-            meta_files <- list.files(kingdom)
-            meta_files <- meta_files[stringr::str_detect(meta_files, "doc_")]
-            file.rename(from = file.path(kingdom, meta_files), to = file.path(kingdom, "documentation", meta_files))
-
-            doc_tsv_files <- file.path(kingdom,"documentation", meta_files[stringr::str_detect(meta_files, "[.]tsv")])
-
-            summary_log <- dplyr::bind_rows(lapply(doc_tsv_files, function(data) {
-              if (fs::file_size(data) > 0)
-                suppressMessages(readr::read_tsv(data))
-            }))
-
-            readr::write_excel_csv(summary_log, file.path(kingdom, "documentation", paste0(kingdom, "_summary.csv")))
-            message("A summary file (which can be used as supplementary information file in publications) containig retrieval information for all ",kingdom," species has been stored at '",file.path(kingdom, "documentation", paste0(kingdom, "_summary.csv")),"'.")
-
-        }
-
-        message("The ", type,"s of all species have already been downloaded! You are up to date!")
-        please_cite_biomartr()
-    }
+    readr::write_excel_csv(summary_log, file.path(path, "documentation", paste0(kingdom, "_summary.csv")))
+    message("A summary file (which can be used as supplementary information file in publications)",
+            "containig retrieval information for all ",
+            kingdom," species has been stored at '",
+            file.path(path, "documentation", paste0(kingdom, "_summary.csv")),"'.")
 }
 
 
