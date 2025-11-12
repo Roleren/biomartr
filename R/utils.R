@@ -150,7 +150,7 @@ supported_biotypes <- function(db) {
   return(bioTypes)
 }
 
-validate_db_type_pair <- function(db, kingdom, subfolders, type, combine,
+validate_db_type_pair <- function(db, kingdom, type, combine,
                                     group = NULL) {
   if (type == "assembly_stats") type <- "assemblystats"
   if (type == "repeat_masker") type <- "rm"

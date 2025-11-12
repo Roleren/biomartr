@@ -137,7 +137,7 @@ meta.retrieval <- function(db         = "refseq",
                            assembly_type = "toplevel",
                            skip_bacteria = FALSE,
                            mute_citation = FALSE) {
-    type <- validate_db_type_pair(db, kingdom, subfolders, type, combine, group)
+    type <- validate_db_type_pair(db, kingdom, type, combine, group)
 
     if (is.null(path)) path <- kingdom
     FinalOrganisms <- meta.retrieval.select.organisms(db, kingdom, group, type,
@@ -167,7 +167,7 @@ meta.retrieval <- function(db         = "refseq",
 
     if (length(FinalOrganisms) > 0) {
         meta.retrieval.summarize.logfiles(path, kingdom)
-        paths <- unlist(paths, use.names = TRUE)
+        if (!combine) paths <- unlist(paths, use.names = TRUE)
     } else {
         db_kingdom_type_summary_file <- meta.retrieval.summary.logfile.path(path, kingdom)
         if (file.exists(db_kingdom_type_summary_file)) {
@@ -187,15 +187,12 @@ meta.retrieval <- function(db         = "refseq",
             paths <- lapply(seq_along(paths), function(i)
                 read_assemblystats(paths[i], type = "stats", names(paths[i])))
         }
-
-        stats.files <- dplyr::bind_rows(stats::na.omit(paths))
-        message("Finished meta retieval process.")
-        return(stats.files)
-    }
+        paths <- dplyr::bind_rows(stats::na.omit(paths))
+    } else paths <- paths[!is.element(paths, c("FALSE", "Not available"))]
 
     please_cite_biomartr(mute_citation)
     message("Finished meta retieval process.")
-    return(paths[!is.element(paths, c("FALSE", "Not available"))])
+    return(paths)
 }
 
 meta.retrieval.select.organisms <- function(db, kingdom, group, type, path,
