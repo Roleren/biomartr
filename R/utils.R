@@ -150,9 +150,11 @@ supported_biotypes <- function(db) {
   return(bioTypes)
 }
 
-validate_db_format_pair <- function(db, kingdom, subfolders, type, combine,
+validate_db_type_pair <- function(db, kingdom, subfolders, type, combine,
                                     group = NULL) {
-
+  if (type == "assembly_stats") type <- "assemblystats"
+  if (type == "repeat_masker") type <- "rm"
+  subfolders <- getKingdoms(db = db)
   if (!is.element(kingdom, subfolders))
     stop(paste0(
       "Please select a valid kingdom: ",
@@ -183,7 +185,7 @@ validate_db_format_pair <- function(db, kingdom, subfolders, type, combine,
         type = 'rna', type = 'rm', or type = 'assembly_stats'.",
       call. = FALSE
     )
-  if (type == "assembly_stats") type <- "assemblystats"
+
 
   if (!is.element(db, c("refseq", "genbank", "ensembl")))
     stop(
@@ -217,5 +219,5 @@ validate_db_format_pair <- function(db, kingdom, subfolders, type, combine,
   if ((type %in% c("rm", "repeat_masker")) && (!is.element(db, c("refseq", "genbank"))))
     stop("Repeat Masker output files can only be retrieved from 'refseq'",
          " or 'genbank'.", call. = FALSE)
-  return(invisible(NULL))
+  return(type)
 }
